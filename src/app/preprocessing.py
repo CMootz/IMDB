@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
-
+from collections import Counter
+import string
 
 class Preprocessing:
     def __init__(self, name):
@@ -19,12 +20,17 @@ class Preprocessing:
         self.negative_template = 'neg/'
         self.directory = directory_template.format(
             root_dir=root_dir, name=name)
+        self.load_data()
+        self.dictionary_arr = []
+        self.positive_counts, self.negative_counts, self.total_counts = self.count_words('train_raw')
+        self.pos_neg_ratios = self.build_count_ratio(self.positive_counts, self.negative_counts, self.total_counts)
+        self.dict = self.build_dictionary(self.pos_neg_ratios, 0.000001)
 
         if not os.path.exists(self.directory):
             print(f'Creating "{name}" directory for you!')
             os.makedirs(self.directory)
 
-    def load_data(self, filetype='txt', *, name, **kwargs):
+    def load_data(self, filetype='txt', **kwargs):
         filepath_train_pos = f'{self.directory}{self.train_template}{self.positive_template}'
         filepath_train_neg = f'{self.directory}{self.train_template}{self.negative_template}'
         filepath_test_pos = f'{self.directory}{self.test_template}{self.positive_template}'
@@ -35,149 +41,153 @@ class Preprocessing:
         test_pos_file_list = os.listdir(filepath_test_pos)
         test_neg_file_list = os.listdir(filepath_test_neg)
 
-        list = []
-        for item in train_neg_file_list:
-            path = filepath_train_neg+item
-            with open(path, 'r') as fd:
-                text = fd.read()
-
-            list.append(text)
-
-        self.data['Train'] = pd.DataFrame(list, columns=['text'])
-        self.data['Train']['filename']=train_neg_file_list
-        self.data['Train']['POS__NEG']= 0
-
-        list = []
-        for item in train_pos_file_list:
-            path = filepath_train_pos+item
-            with open(path, 'r') as fd:
-                text = fd.read()
-
-            list.append(text)
-
-        data = pd.DataFrame(list, columns=['text'])
-        data['filename']=train_pos_file_list
-        data['POS__NEG']= 1
-
-        self.data['Train'] = pd.concat([self.data['Train'], data])
-        self.data['Train'] = self.data['Train'].sample(frac=1).reset_index(drop=True)
-
-        list = []
-        for item in test_neg_file_list:
-            path = filepath_test_neg+item
-            with open(path, 'r') as fd:
-                text = fd.read()
-
-            list.append(text)
-
-        self.data['Test'] = pd.DataFrame(list, columns=['text'])
-        self.data['Test']['filename']=train_neg_file_list
-        self.data['Test']['POS__NEG']= 0
-
-        list = []
-        for item in test_pos_file_list:
-            path = filepath_test_pos+item
-            with open(path, 'r') as fd:
-                text = fd.read()
-
-            list.append(text)
-
-        data = pd.DataFrame(list, columns=['text'])
-        data['filename']=test_pos_file_list
-        data['POS__NEG']= 1
-
-        self.data['Test'] = pd.concat([self.data['Test'], data])
-        self.data['Test'] = self.data['Test'].sample(frac=1).reset_index(drop=True)
- #   def save(self, name, filetype='csv', **kwargs):
- #       filepath = f'{self.directory}/{name}.{filetype}'
- #       getattr(self.data[name], f'to_{filetype}')(filepath, **kwargs)
-#
- #   def cleanup(self, name, *, drop=False, drop_duplicates=False):
- #       data = self.data[name]
-#
- #       if drop is not False:
- #           data = data.drop(columns=drop)
-#
- #       if drop_duplicates is True:
- #           data = data.drop_duplicates()
-#
- #       self.data['clean'] = data
-#
- #   def clean_dataset(self, name):
- #       data = self.data[name]
- #       data.dropna(inplace=True)
- #       indices_to_keep = ~data.isin([np.nan, np.inf, -np.inf]).any(1)
- #       self.data['clean'] = data[indices_to_keep].astype(np.float64)
-#
- #   def one_hot_encode(self, *, columns):
- #       if 'clean' not in self.data:
- #           print('Can not find clean data')
- #           return
-#
- #       data = self.data['clean']
- #       categorical = pd.get_dummies(data[columns], dtype='int')
- #       data = data.drop(data[columns], axis=1)
- #       data = pd.concat([data, categorical], axis=1, sort=False)
- #       self.data['clean'] = data
-#
- #       return data
-#
- #   def label_encode(self, *, columns):
- #       if 'clean' not in self.data:
- #           print('Can not find clean data')
- #           return
- #       data = self.data['clean']
- #       le = preprocessing.LabelEncoder()
- #       label = pd.DataFrame()
- #       stuff_to_label = columns
- #       ix = 0
- #       for i in stuff_to_label:
- #           le.fit(data[i])
- #           lab = le.transform(data[i])
- #           label.insert(ix, column=i, value=lab)
- #           ix += 1
- #       data = data.drop(stuff_to_label, axis=1)
- #       data = pd.concat([data, label], axis=1, sort=False)
- #       self.data['clean'] = data
-#
- #       return data
-#
- #   def split_data(self, *, target, size=0.2, state=42):
- #       if 'clean' not in self.data:
- #           print('Can not find clean data')
- #           return
-#
- #       data = self.data['clean']
- #       X = np.array(data.drop([target], axis=1))
- #       y = np.array(data[target])
-#
- #       X_train, X_test, y_train, y_test = train_test_split(
- #           X, y, test_size=size, random_state=state)
- #       X_train, X_val, y_train, y_val = train_test_split(
- #           X_train, y_train, test_size=size, random_state=state)
-#
- #       self.splits = {'X_train': X_train, 'X_test': X_test, 'X_val': X_val,
- #                      'y_train': y_train, 'y_test': y_test, 'y_val': y_val}
-#
- #       return X_train, X_test, X_val, y_train, y_test, y_val
-#
- #   def scaler(self, *, scale_y=False):
- #       if 'X_train' not in self.splits:
- #           print('Splited data not available')
- #           return
- #       scaler = preprocessing.MinMaxScaler()
- #       self.splits['X_train'] = scaler.fit_transform(self.splits['X_train'])
- #       self.splits['X_test'] = scaler.transform(self.splits['X_test'])
- #       self.splits['X_val'] = scaler.transform(self.splits['X_val'])
-#
- #       if scale_y:
- #           self.splits['y_train'] = scaler.fit_transform(
- #               self.splits['y_train'])
- #           self.splits['y_test'] = scaler.transform(self.splits['y_test'])
- #           self.splits['y_val'] = scaler.transform(self.splits['y_val'])
+        self.set('train_raw', pd.concat([(self._build_df(filepath_train_neg, train_neg_file_list, 0)),
+                                         (self._build_df(filepath_train_pos, train_pos_file_list, 1))]))
+        self._shuffle_df('train_raw')
+        self.save('train_raw')
+        self.set('test_raw', pd.concat([self._build_df(filepath_test_neg, test_neg_file_list, 0),
+                                        self._build_df(filepath_test_pos, test_pos_file_list, 1)]))
+        self._shuffle_df('test_raw')
+        self.save('test_raw')
 
     def get(self, name):
         return self.data[name]
 
     def set(self, name, value):
         self.data[name] = value
+
+    def _build_df(self, path, load_list, y_val):
+        translator = str.maketrans('', '', string.punctuation)
+        list = []
+        for item in load_list:
+            with open(path+item, 'r') as fd:
+                text = fd.read()
+                text = text.translate(translator)
+            list.append(text)
+        data = pd.DataFrame(list, columns=['text'])
+        data['POS__NEG'] = y_val
+        return data
+
+    def _shuffle_df(self, name):
+        self.data[name] = self.data[name].sample(frac=1).reset_index(drop=True)
+        return self.data[name]
+
+    def count_words(self, df_name):
+        positive_counts = Counter()
+        negative_counts = Counter()
+        total_counts = Counter()
+        touple_word1 = ''
+        triple_word1 = ''
+        triple_word2 = ''
+        for i in range(self.data[df_name].shape[0]):
+            if self.data[df_name]['POS__NEG'][i] == 1:
+                for word in self.data[df_name]['text'][i].split(" "):
+                    touple_word2 = word
+                    triple_word3 = word
+                    positive_counts[word] += 1
+                    positive_counts[touple_word1 + ' ' + touple_word2] += 1
+                    positive_counts[triple_word1 + ' ' + triple_word2 + ' ' + triple_word3] += 1
+
+                    total_counts[word] += 1
+                    total_counts[touple_word1 + ' ' + touple_word2] += 1
+                    total_counts[triple_word1 + ' ' + triple_word2 + ' ' + triple_word3] += 1
+
+                    touple_word1 = touple_word2
+                    triple_word1 = triple_word2
+                    triple_word2 = triple_word3
+            else:
+                for word in self.data[df_name]['text'][i].split(" "):
+                    touple_word2 = word
+                    triple_word3 = word
+                    negative_counts[word] += 1
+                    negative_counts[touple_word1 + ' ' + touple_word2] += 1
+                    negative_counts[triple_word1 + ' ' + triple_word2 + ' ' + triple_word3] += 1
+
+                    total_counts[word] += 1
+                    total_counts[touple_word1 + ' ' + touple_word2] += 1
+                    total_counts[triple_word1 + ' ' + triple_word2 + ' ' + triple_word3] += 1
+
+                    touple_word1 = touple_word2
+                    triple_word1 = triple_word2
+                    triple_word2 = triple_word3
+        return positive_counts, negative_counts, total_counts
+
+    @classmethod
+    def build_count_ratio(cls, count_divident, count_divisor, total_counts):
+        ratios = Counter()
+        for term, cnt in list(total_counts.most_common()):
+            if cnt > 100:
+                ratio = count_divident[term] / float(count_divisor[term] + 1)
+                ratios[term] = ratio
+
+        return ratios
+
+    @classmethod
+    def log_count_ratio(cls, ratios):
+        for word, ratio in ratios.most_common():
+            ratios[word] = np.log(ratio)
+        return ratios
+
+    @classmethod
+    def _build_drop_list(cls, ratios, drop_fract):
+        drop_count = 0
+        drop_words = []
+
+        for word, ratio in ratios.most_common():
+            if -drop_fract < ratios[word] < drop_fract:
+                drop_words.append(word)
+                drop_count += 1
+        return drop_words
+
+    @classmethod
+    def _reduce_wordcount(cls, ratios, drop_words):
+        listx = ratios.copy()
+        for dword in drop_words:
+            del listx[dword]
+        return listx
+
+    @classmethod
+    def _set_dict_index(cls, word_list):
+        count = 0
+        for key, idx in word_list.items():
+            word_list[key] = count
+            count += 1
+        return word_list
+
+    @classmethod
+    def build_dictionary(cls, ratios, drop_fract=0.7):
+        drop_words = cls._build_drop_list(ratios, drop_fract)
+        diction = dict(cls._reduce_wordcount(ratios, drop_words))
+        return cls._set_dict_index(diction)
+
+    def build_df(self, name_src, name_dest, dict):
+        data = np.zeros((self.data[name_src].shape[0], len(dict)))
+        touple_word1 = ''
+        triple_word1 = ''
+        triple_word2 = ''
+        for i in range(self.data[name_src].shape[0]):
+            for word in self.data[name_src]['text'][i].split(" "):
+
+                touple_word2 = word
+                triple_word3 = word
+
+                if word in dict:
+                    data[i][dict[word]] += 1
+                if (touple_word1 + ' ' + touple_word2) in dict:
+                    data[i][dict[touple_word1 + ' ' + touple_word2]] += 1
+                if (triple_word1 + ' ' + triple_word2 + ' ' + triple_word3) in dict:
+                    data[i][dict[triple_word1 + ' ' + triple_word2 + ' ' + triple_word3]] += 1
+
+                touple_word1 = touple_word2
+                triple_word1 = triple_word2
+                triple_word2 = triple_word3
+        data = pd.DataFrame(data, columns=dict)
+        self.set(name_dest, data)
+        self.save(name_dest)
+        return data
+
+    def save(self, name, filetype='csv', *, index=False, **kwargs):
+        filepath = f'{self.directory}/{name}.{filetype}'
+        getattr(self.data[name], f'to_{filetype}')(filepath, index=index, **kwargs)
+
+
